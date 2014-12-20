@@ -1,0 +1,80 @@
+desc:Channel Splitter for Realistic Orchestration
+slider1:1<0,10,1>Insruments
+
+@init
+ext_midi_bus = 1;
+channels=4;
+notes=128;
+vel=2*notes;
+players=channels+vel;
+channel=channels+players;
+
+@slider
+channels=slider1;
+   
+
+@block
+channel[0]=$x90;
+channel[1]=$x91;
+channel[2]=$x92;
+channel[3]=$x93;
+channel[4]=$x94;
+channel[5]=$x95;
+function process_note(o,a,b) (
+   (b == 0) ?  (
+     notes[a]=0;
+     vel[a]=0;
+     i=0;
+     loop(channels,
+       (players[i]==a) ? (
+         midisend(o,channel[i],a,0);
+         players[i]=0;
+       );
+       i+=1;
+     );
+    );
+  (b != 0) ?  (
+    notes[a]=1;
+    vel[a]=b;
+  );
+);
+playing_notes=0;
+i=0;
+loop(notes,
+  (notes[i]!=0) ? (playing_notes+=1);
+  i+=1;
+);
+note_count=playing_notes;
+i=notes;
+aa=players[0];
+bb=players[1];
+cc=players[2];
+while(playing_notes>0) ? (
+  loop_len=floor(channels/note_count);
+  x=0;
+  loop(notes,
+    (notes[i]!=0) ? (
+      //y=0;
+        loop(loop_len,
+          //while(players[x]!=0) ? (x+=1);
+          (players[x]!=i && notes[i]==1) ? (
+            midisend(offset,channel[x],players[x],0);
+            midisend(offset,channel[x],i,vel[i]);
+          );
+            players[x]=i;
+            x+=1;
+            //y+=2;
+            //x+=1;
+          //);
+        );
+        notes[i]=2;
+    );
+    i-=1;
+  );
+);
+ 
+while (midirecv(offset,msg1,msg2,msg3)) (
+  msg1==$x90 || msg3==0 ? (  
+   process_note(offset,msg2,msg3)   
+  );
+);   

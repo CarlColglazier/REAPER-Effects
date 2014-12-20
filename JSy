@@ -1,0 +1,148 @@
+desc:Triple Oscillator Synth
+slider1:-12<-120,6,1>Volume
+slider2:0<0,3,1{sine,saw,tri}>Shape
+slider3:0<-24,24,1>octave shift
+slider4:100<0,100,1>vol
+slider5:0<0,3,1{sine,saw,tri}>Shape
+slider6:0<-24,24,1>octave shift
+slider7:100<0,100,1>vol
+slider8:0<0,3,1{sine,saw,tri}>Shape
+slider9:0<-24,24,1>octave shift
+slider10:100<0,100,1>vol
+slider11:0<-100,100,1>pan
+slider12:800<10,20000>frequency (Hz)
+slider13:0.2<0.01,1>size (0=sharp, 1=dull)
+slider14:0.01<0.01,1>attack
+slider15:1<0.01,1>decay
+slider16:1<0,1>sustain
+slider17:1<0.01,1>release
+slider18:0<0,1,1>Velocity Sensitive
+
+@init
+ext_midi_bus = 1;
+voices = 128;
+notes= 1;
+att = 1+voices;
+rel = 1+2*voices;
+dec = 1+3*voices;
+vel = 1+4*voices;
+pos = 1+5*voices;
+mod = 1+6*voices;
+osc_count=7;
+oscs=1+pos+4*voices;
+pitch_shift=oscs+osc_count;
+osc_vol=pitch_shift+osc_count;
+i=0;
+loop(voices,
+  notes[i]=0;
+  i+=1;
+  );
+ 
+@slider
+  vol=2 ^ (slider1/6); 
+  pan=slider11;
+  oscs[0]=slider2;
+  oscs[4]=slider5;
+  oscs[2]=slider8;
+  pitch_shift[0]=slider3/12;
+  pitch_shift[4]=slider6/12;
+  pitch_shift[2]=slider9/12;
+  osc_vol[0]=slider4;
+  osc_vol[4]=slider7;
+  osc_vol[2]=slider10;
+  damp=0.01+slider13*20;
+  c = 1/tan($pi*slider12/srate);
+  fk = 1 / (1 + c*(c+damp));
+  fa1 = 2 * (1 - c*c) * fk;
+  fa0 = (1 + c*(c-damp)) * fk;
+  attack_amt = slider14;
+  dec_amt=slider15;
+  rel_amt = slider17;
+  sus_amt = slider16;
+  velocity_sensitive=slider18
+   
+@sample
+  totone=0;
+  function sine_wave(x,y,z) (
+    totone+=mod[y]*(osc_vol[z]/100)*(vel[y]/128)*(cos(pos[x]));
+  );
+  function triangle_wave(x,y,z) (
+    totone+=mod[y]*(osc_vol[z]/100)*(vel[y]/128)*($pi-pos[x])/$pi;
+  );
+  function saw_wave(x,y,z) (
+    totone+=mod[y]*(osc_vol[z]/100)*(vel[y]/128)*(pos[x]-$pi)/($pi);
+  );
+  i=0;
+  loop(voices,
+    (rel[i] > 0) ?  (
+      (rel[i] <= 10/(srate)) ? (
+        rel[i]=0;
+        att[i]=0;
+        pos[i]=0;
+        );
+      (notes[i]!=1) ?  (
+        dec[i]=0;
+        rel[i] += -1/(rel_amt*srate);
+      );
+      (attack_amt==0) ? att[i]=1;
+      (att[i] < 1) ? (att[i] += 1/(srate*attack_amt)
+        ) : (
+        (dec[i] < 0.99) ? dec[i] += 1/(srate*dec_amt);
+      );
+      mod[i]=(1-dec[i])*att[i]+sus_amt*dec[i];
+      (notes[i]!=1) ? mod[i]=rel[i]*sus_amt;
+      osc_num=-2;
+      loop(osc_count,
+      osc_num+=2;
+      osc_note=i+osc_num*voices;
+      pos[osc_note]+=16*$pi*(2^(pitch_shift[osc_num]))*(2^(i/12+1/30))/srate;
+      (pos[osc_note] >= 2.0*$pi) ? (pos[osc_note] -= 2.0*$pi);
+        (oscs[osc_num]==0)  ? (
+          sine_wave(osc_note,i,osc_num);
+        ) : (oscs[osc_num]==1) ? (
+          saw_wave(osc_note,i,osc_num);
+        ) : (
+          triangle_wave(osc_note,i,osc_num);
+        );
+      );
+      last_note = i; // Stops noise when nothing is playing.
+    );
+    i += 1;
+  );
+  (last_note==0) ? (
+    totone=0;
+    );
+  //Run through filters and create final tone
+  tone=(vol*totone)/osc_count;
+  fd0l = (fk*tone*(100-pan)/200) - (fa1*fd1l) - (fa0*fd2l);
+  fd0r = (fk*tone*-(-100-pan)/200) - (fa1*fd1r) - (fa0*fd2r);
+  spl0 = fd0l + fd1l + fd1l + fd2l;
+  spl1 = fd0r + fd1r + fd1r + fd2r;
+  fd2l = fd1l;
+  fd2r = fd1r;
+  fd1l = fd0l;
+  fd1r = fd0r;
+  
+
+@block
+function process_note(a,b) (
+  (velocity_sensitive==0 && b>0) ? (b=127;);
+   (b == 0) ?  (
+     notes[a]=0;
+    );
+  (b != 0) ?  (
+        notes[a]=1; 
+        vel[a]=b;
+        att[a]=0;
+        rel[a]=1;
+        dec[a]=0;
+  );
+  
+  midisend(offset,msg1,msg2,msg3)  
+ );
+ 
+while (midirecv(offset,msg1,msg2,msg3)) (
+  msg1==$x90 || msg3==0 ? (  
+   process_note(msg2,msg3)   
+  );
+);   
